@@ -1,0 +1,16 @@
+[package]
+name = "bsd_auth"
+version = "0.0.2"
+edition = "2018"
+categories = ["api-bindings"]
+description = "Rust API for OpenBSD's bsd_auth"
+keywords = ["bsd", "auth", "api"]
+license = "BSD-2-Clause"
+authors = ["orvi"]
+repository = "https://github.com/orvij/bsd_auth"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bsd_auth-sys = "0.0.3"
+libc = "0.2.98"
