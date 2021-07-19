@@ -1,3 +1,5 @@
+use std::ffi::CString; 
+
 use bsd_auth_sys as ffi;
 
 pub use ffi::AuthItem;
@@ -89,7 +91,7 @@ impl Session {
             //
             // The string should be a valid UTF-8 string pointing to
             // valid memory, so converting to a Rust String should be safe
-            let res = unsafe { std::ffi::CString::from_raw(c_res) };
+            let res = unsafe { CString::from_raw(c_res) };
             Ok(res.to_str()?.into())
         }
     }
@@ -177,7 +179,7 @@ impl Session {
             } else {
                 // safety: at this point, the value returned should be a
                 // pointer to a valid UTF-8 C string
-                let c_res = unsafe { std::ffi::CString::from_raw(c_res) };
+                let c_res = unsafe { CString::from_raw(c_res) };
                 let res = c_res.to_str()?.into();
                 let _ = c_res.into_raw();
                 Ok(res)
@@ -191,7 +193,7 @@ impl Session {
     ///
     /// Call is not thread-safe
     pub fn auth_setitem(&self, item: AuthItem, value: &str) -> Result<(), Error> {
-        let c_str = std::ffi::CString::new(value)?;
+        let c_str = CString::new(value)?;
         // safety: auth_setitem checks for null, and sets errno to EINVAL
         // if the auth_session_t* or members are null (so let it do the checks).
         let c_res = match item {
@@ -234,8 +236,8 @@ impl Session {
         if self.inner == std::ptr::null_mut() {
             Err(Error::NullSession)
         } else {
-            let n = std::ffi::CString::new(name)?;
-            let v = std::ffi::CString::new(value)?;
+            let n = CString::new(name)?;
+            let v = CString::new(value)?;
             // safety: auth_setoption checks for null arguments, and argument validity
             let c_res = unsafe { ffi::auth_setoption(self.inner, n.into_raw(), v.into_raw()) };
 
@@ -268,7 +270,7 @@ impl Session {
         if self.inner == std::ptr::null_mut() {
             Err(Error::NullSession)
         } else {
-            let opt = std::ffi::CString::new(option)?;
+            let opt = CString::new(option)?;
             // safety: auth_clroption checks for null
             // in the optlist member, call is safe with the call above
             unsafe { ffi::auth_clroption(self.inner, opt.into_raw()) };
@@ -317,21 +319,21 @@ impl Session {
         auth_type: Option<&str>,
         password: Option<&mut str>,
     ) -> Result<Self, Error> {
-        let c_name = std::ffi::CString::new(name)?;
+        let c_name = CString::new(name)?;
     
         let style_ptr = match style {
-            Some(s) => std::ffi::CString::new(s)?.into_raw(),
+            Some(s) => CString::new(s)?.into_raw(),
             None => std::ptr::null_mut(),
         };
     
         let type_ptr = match auth_type {
-            Some(t) => std::ffi::CString::new(t)?.into_raw(),
+            Some(t) => CString::new(t)?.into_raw(),
             None => std::ptr::null_mut(),
         };
     
         let passwd_ptr = match password {
             Some(p) => {
-                let ptr = std::ffi::CString::new(&*p)?.into_raw();
+                let ptr = CString::new(&*p)?.into_raw();
                 // safety: password guaranteed non-null, and points to valid
                 // memory
                 unsafe { libc::explicit_bzero(p.as_mut_ptr() as *mut _, p.len()) };
@@ -375,21 +377,21 @@ impl Session {
         auth_type: Option<&str>,
         password: Option<&mut str>,
     ) -> Result<bool, Error> {
-        let c_name = std::ffi::CString::new(name)?;
+        let c_name = CString::new(name)?;
     
         let style_ptr = match style {
-            Some(s) => std::ffi::CString::new(s)?.into_raw(),
+            Some(s) => CString::new(s)?.into_raw(),
             None => std::ptr::null_mut(),
         };
     
         let type_ptr = match auth_type {
-            Some(t) => std::ffi::CString::new(t)?.into_raw(),
+            Some(t) => CString::new(t)?.into_raw(),
             None => std::ptr::null_mut(),
         };
     
         let passwd_ptr = match password {
             Some(p) => {
-                let ptr = std::ffi::CString::new(&*p)?.into_raw();
+                let ptr = CString::new(&*p)?.into_raw();
                 // safety: password guaranteed non-null, and points to valid
                 // memory
                 unsafe { libc::explicit_bzero(p.as_mut_ptr() as *mut _, p.len()) };
@@ -429,19 +431,19 @@ impl Session {
         style: Option<&str>,
         auth_type: Option<&str>,
     ) -> Result<(Self, String), Error> {
-        let name_ptr = std::ffi::CString::new(name)?.into_raw();
+        let name_ptr = CString::new(name)?.into_raw();
     
         let style_ptr = match style {
-            Some(s) => std::ffi::CString::new(s)?.into_raw(),
+            Some(s) => CString::new(s)?.into_raw(),
             None => std::ptr::null_mut(),
         };
     
         let type_ptr = match auth_type {
-            Some(t) => std::ffi::CString::new(t)?.into_raw(),
+            Some(t) => CString::new(t)?.into_raw(),
             None => std::ptr::null_mut(),
         };
     
-        let mut challenge_ptr = std::ffi::CString::new("")?.into_raw();
+        let mut challenge_ptr = CString::new("")?.into_raw();
     
         // safety: auth_userchallenge performs null checks on all of the
         // arguments. If the user name is invalid, or authentication fails,
@@ -454,16 +456,15 @@ impl Session {
             // safety: with the null check above, the challenge pointer should
             // point to a valid C string
             unsafe {
-                std::ffi::CString::from_raw(challenge_ptr)
-                .to_str()?
-                .to_string()
+                let cstr = CString::from_raw(challenge_ptr);
+                let c = cstr.to_str()?.to_string();
+                // release ownership of challenge pointer
+                // to let auth_userchallenge handle the memory
+                let _ = cstr.into_raw();
+                c
             }
         };
 
-        // safety: challenge pointer checked for null above, and points
-        // to valid memory
-        unsafe { libc::explicit_bzero(challenge_ptr as *mut _, challenge.len()) };
-    
         Ok((Self::from_raw(ses_ptr)?, challenge))
     }
     
@@ -483,15 +484,12 @@ impl Session {
         response: &mut str,
         more: i32,
     ) -> Result<bool, Error> {
-        let res_ptr = std::ffi::CString::new(&*response)?.into_raw();
+        let res_ptr = CString::new(&*response)?.into_raw();
 
         // safety: auth_userresponse checks arguments for null, and clears the
         // memory pointed to by the response pointer
         let res = unsafe { ffi::auth_userresponse(self.inner, res_ptr, more) };
 
-        // safety: response guaranteed to point to valid memory
-        unsafe { libc::explicit_bzero(response.as_mut_ptr() as *mut _, response.len()) };
-    
         Ok(res != 0)
     }
 }
@@ -501,7 +499,7 @@ impl Drop for Session {
         if self.inner != std::ptr::null_mut() {
             // safety: auth_clean performs null checks
             // on inner members before freeing
-            unsafe { ffi::auth_clean(self.inner); } 
+            unsafe { ffi::auth_close(self.inner); } 
         }
     }
 }
