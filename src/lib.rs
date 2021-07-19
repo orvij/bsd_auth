@@ -62,7 +62,7 @@ impl Session {
         if ptr == std::ptr::null_mut() {
             Err(Error::NullSession)
         } else {
-            Ok(Self { ptr: ptr })
+            Ok(Self { ptr })
         }
     }
 
@@ -70,14 +70,10 @@ impl Session {
     ///
     /// Consumes the Session
     pub fn into_raw(mut self) -> Result<*mut ffi::auth_session_t, Error> {
-        let null_ptr = std::ptr::null_mut();
-        if self.ptr == null_ptr {
-            Err(Error::NullSession)
-        } else {
-            let ret_ptr = self.ptr;
-            self.ptr = null_ptr;
-            Ok(ret_ptr)
-        }
+        self.check_ptr()?;
+        let ret_ptr = self.ptr;
+        self.ptr = std::ptr::null_mut();
+        Ok(ret_ptr)
     }
 
     /// Request a challenge for the session
@@ -110,9 +106,7 @@ impl Session {
     ///
     /// Call is not thread-safe
     pub fn auth_close(&self) -> Result<(), Error> {
-        if self.ptr == std::ptr::null_mut() {
-            return Err(Error::NullSession);
-        }
+        self.check_ptr()?;
         let res = unsafe { ffi::auth_close(self.ptr) };
         if res == 0 {
             Err(Error::Close)
@@ -126,11 +120,8 @@ impl Session {
     ///
     /// Call is not thread-safe
     pub fn auth_getstate(&self) -> Result<i32, Error> {
-        if self.ptr == std::ptr::null_mut() {
-            Err(Error::NullSession)
-        } else {
-            Ok(unsafe { ffi::auth_getstate(self.ptr) })
-        }
+        self.check_ptr()?;
+        Ok(unsafe { ffi::auth_getstate(self.ptr) })
     }
 
     /// Set/unset the requested environment variables.
@@ -141,54 +132,45 @@ impl Session {
     ///
     /// Call is not thread-safe
     pub fn auth_setenv(&self) -> Result<(), Error> {
-        if self.ptr == std::ptr::null_mut() {
-            Err(Error::NullSession)
-        } else {
-            // safety: auth_setenv does not check the validity of the spool
-            // There is no way to check for an error
-            //
-            // auth_session_t is an opaque type, so we can't check either
-            unsafe { ffi::auth_setenv(self.ptr) };
-            Ok(())
-        }
+        self.check_ptr()?;
+        // safety: auth_setenv does not check the validity of the spool
+        // There is no way to check for an error
+        //
+        // auth_session_t is an opaque type, so we can't check either
+        unsafe { ffi::auth_setenv(self.ptr) };
+        Ok(())
     }
 
     /// Clear out any of the requested environment variables.
     ///
     /// Call is not thread-safe
     pub fn auth_clrenv(&self) -> Result<(), Error> {
-        if self.ptr == std::ptr::null_mut() {
-            Err(Error::NullSession)
-        } else {
-            // safety: auth_setenv does not check the validity of the spool
-            // There is no way to check for an error
-            //
-            // auth_session_t is an opaque type, so we can't check either
-            unsafe { ffi::auth_clrenv(self.ptr) };
-            Ok(())
-        }
+        self.check_ptr()?;
+        // safety: auth_setenv does not check the validity of the spool
+        // There is no way to check for an error
+        //
+        // auth_session_t is an opaque type, so we can't check either
+        unsafe { ffi::auth_clrenv(self.ptr) };
+        Ok(())
     }
 
     /// Get the item value
     ///
     /// Call is not thread-safe
     pub fn auth_getitem(&self, item: AuthItem) -> Result<String, Error> {
-        if self.ptr == std::ptr::null_mut() {
-            Err(Error::NullSession)
+        self.check_ptr()?;
+        // safety: auth_getitem also checks for null, so the call is safe
+        let c_res = unsafe { ffi::auth_getitem(self.ptr, item as u32) };
+        if c_res == std::ptr::null_mut() {
+            // return error if the value is unset
+            Err(Error::GetItem)
         } else {
-            // safety: auth_getitem also checks for null, so the call is safe
-            let c_res = unsafe { ffi::auth_getitem(self.ptr, item as u32) };
-            if c_res == std::ptr::null_mut() {
-                // return error if the value is unset
-                Err(Error::GetItem)
-            } else {
-                // safety: at this point, the value returned should be a
-                // pointer to a valid UTF-8 C string
-                let c_res = unsafe { CString::from_raw(c_res) };
-                let res = c_res.to_str()?.into();
-                let _ = c_res.into_raw();
-                Ok(res)
-            }
+            // safety: at this point, the value returned should be a
+            // pointer to a valid UTF-8 C string
+            let c_res = unsafe { CString::from_raw(c_res) };
+            let res = c_res.to_str()?.into();
+            let _ = c_res.into_raw();
+            Ok(res)
         }
     }
 
@@ -198,6 +180,7 @@ impl Session {
     ///
     /// Call is not thread-safe
     pub fn auth_setitem(&self, item: AuthItem, value: &str) -> Result<(), Error> {
+        self.check_ptr()?;
         let c_str = CString::new(value)?;
         // safety: auth_setitem checks for null, and sets errno to EINVAL
         // if the auth_session_t* or members are null (so let it do the checks).
@@ -238,19 +221,16 @@ impl Session {
     ///
     /// Call is not thread-safe
     pub fn auth_setoption(&self, name: &str, value: &str) -> Result<(), Error> {
-        if self.ptr == std::ptr::null_mut() {
-            Err(Error::NullSession)
-        } else {
-            let n = CString::new(name)?;
-            let v = CString::new(value)?;
-            // safety: auth_setoption checks for null arguments, and argument validity
-            let c_res = unsafe { ffi::auth_setoption(self.ptr, n.into_raw(), v.into_raw()) };
+        self.check_ptr()?;
+        let n = CString::new(name)?;
+        let v = CString::new(value)?;
+        // safety: auth_setoption checks for null arguments, and argument validity
+        let c_res = unsafe { ffi::auth_setoption(self.ptr, n.into_raw(), v.into_raw()) };
 
-            if c_res == -1 {
-                Err(Error::SetOption)
-            } else {
-                Ok(())
-            }
+        if c_res == -1 {
+            Err(Error::SetOption)
+        } else {
+            Ok(())
         }
     }
 
@@ -258,29 +238,23 @@ impl Session {
     ///
     /// Call is not thread-safe
     pub fn auth_clroptions(&self) -> Result<(), Error> {
-        if self.ptr == std::ptr::null_mut() {
-            Err(Error::NullSession)
-        } else {
-            // safety: auth_clroptions checks for null
-            // in the optlist member, call is safe with the call above
-            unsafe { ffi::auth_clroptions(self.ptr) };
-            Ok(())
-        }
+        self.check_ptr()?;
+        // safety: auth_clroptions checks for null
+        // in the optlist member, call is safe with the call above
+        unsafe { ffi::auth_clroptions(self.ptr) };
+        Ok(())
     }
 
     /// Clear the option matching the specified name
     ///
     /// Call is not thread-safe
     pub fn auth_clroption(&self, option: &str) -> Result<(), Error> {
-        if self.ptr == std::ptr::null_mut() {
-            Err(Error::NullSession)
-        } else {
-            let opt = CString::new(option)?;
-            // safety: auth_clroption checks for null
-            // in the optlist member, call is safe with the call above
-            unsafe { ffi::auth_clroption(self.ptr, opt.into_raw()) };
-            Ok(())
-        }
+        self.check_ptr()?;
+        let opt = CString::new(option)?;
+        // safety: auth_clroption checks for null
+        // in the optlist member, call is safe with the call above
+        unsafe { ffi::auth_clroption(self.ptr, opt.into_raw()) };
+        Ok(())
     }
 
     /// Set BSD Authentication session data to be read into the spool.
@@ -290,20 +264,17 @@ impl Session {
     ///
     /// Call is not thread-safe
     pub fn auth_setdata(&self, data: &mut [u8]) -> Result<(), Error> {
-        if self.ptr == std::ptr::null_mut() {
-            Err(Error::NullSession)
-        } else {
-            let d = data.as_mut_ptr() as *mut _;
-            let len = data.len() as u64;
-            // safety: auth_setdata checks for nulls of members. With the null
-            // check for the session above, the call is safe.
-            let c_res = unsafe { ffi::auth_setdata(self.ptr, d, len) };
+        self.check_ptr()?;
+        let d = data.as_mut_ptr() as *mut _;
+        let len = data.len() as u64;
+        // safety: auth_setdata checks for nulls of members. With the null
+        // check for the session above, the call is safe.
+        let c_res = unsafe { ffi::auth_setdata(self.ptr, d, len) };
 
-            if c_res == -1 {
-                Err(Error::SetData)
-            } else {
-                Ok(())
-            }
+        if c_res == -1 {
+            Err(Error::SetData)
+        } else {
+            Ok(())
         }
     }
 
@@ -556,6 +527,8 @@ impl Session {
         response: &mut str,
         more: i32,
     ) -> Result<bool, Error> {
+        self.check_ptr()?;
+
         let res_ptr = CString::new(&*response)?.into_raw();
 
         // safety: auth_userresponse checks arguments for null, and clears the
@@ -565,6 +538,14 @@ impl Session {
         let _ = self.into_raw()?;
 
         Ok(res != 0)
+    }
+
+    fn check_ptr(&self) -> Result<(), Error> {
+        if self.ptr == std::ptr::null_mut() {
+            Err(Error::NullSession)
+        } else {
+            Ok(())
+        }
     }
 }
 
