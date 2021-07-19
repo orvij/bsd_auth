@@ -302,6 +302,20 @@ impl Session {
         }
     }
 
+    /// Single function interface to a BSD Authentication session
+    ///
+    /// Functions similarly to a auth_userokay, but does not close the session.
+    ///
+    /// Example:
+    ///
+    /// ```rust
+    /// # use bsd_auth::Session;
+    /// let name = "nobody".to_string();
+    /// let mut passwd = "some_passwd".to_string();
+    ///
+    /// let _session = Session::auth_usercheck(name.as_str(), None, None, Some(&mut passwd)).unwrap();
+    /// ```
+    ///
     /// From `man 3 auth_approval`:
     ///
     /// The auth_usercheck() function operates the same as the auth_userokay()
@@ -334,8 +348,7 @@ impl Session {
         let passwd_ptr = match password {
             Some(p) => {
                 let ptr = CString::new(&*p)?.into_raw();
-                // safety: password guaranteed non-null, and points to valid
-                // memory
+                // safety: pointer is guaranteed non-null, and points to valid memory
                 unsafe { libc::explicit_bzero(p.as_mut_ptr() as *mut _, p.len()) };
                 ptr
             }
@@ -351,24 +364,45 @@ impl Session {
         Self::from_raw(ses_ptr)
     }
     
-    ///  From `man 3 auth_approval`:
+    /// Single function call interface for a BSD Authentication session
     ///
-    ///  Provides a single function call interface.
+    /// Provide a name, and optional style, type and password.
     ///
-    ///  Provided with a user's name in name, and an optional style, type, and password, the auth_userokay() function returns a simple yes/no response.
+    /// If style or type are not provided, the default values will be used.
     ///
-    ///  A return value of true implies failure; a false return value implies success.
-    ///  Other error conditions result in Error.
+    /// Supplying a password uses the non-interactive version of the authentication.
+    /// Not supplying a password uses an interactive authentication mode.
     ///
-    ///  If style is not NULL, it specifies the desired style of authentication to be used.
-    ///  If it is NULL then the default style for the user is used.
-    ///  In this case, name may include the desired style by appending it to the user's name with a single colon (`:') as a separator.
-    ///  If type is not NULL then it is used as the authentication type (such as "auth-myservice").
-    ///  If password is NULL then auth_userokay() operates in an interactive mode with the user on standard input, output, and error.
-    ///  If password is specified, auth_userokay() operates in a non-interactive mode and only tests the specified passwords.
-    ///  This non-interactive method does not work with challenge-response authentication styles.
+    /// Example:
     ///
-    ///  For security reasons, when a password is specified, auth_userokay() will zero out its value before it returns. 
+    /// ```rust
+    /// # use bsd_auth::Session;
+    /// let name = "nobody".to_string();
+    /// let mut passwd = "some_passwd".to_string();
+    ///
+    /// assert!(!Session::auth_userokay(name.as_str(), None, None, Some(&mut passwd)).unwrap());
+    /// ```
+    ///
+    /// From `man 3 auth_approval`:
+    /// 
+    /// ```no_build
+    /// Provides a single function call interface.
+    ///
+    /// Provided with a user's name in name, and an optional style, type, and password, the auth_userokay() function returns a simple yes/no response.
+    ///
+    /// A return value of true implies failure; a false return value implies success.
+    /// Other error conditions result in Error.
+    ///
+    /// If style is not NULL, it specifies the desired style of authentication to be used.
+    /// If it is NULL then the default style for the user is used.
+    /// In this case, name may include the desired style by appending it to the user's name with a single colon (`:') as a separator.
+    /// If type is not NULL then it is used as the authentication type (such as "auth-myservice").
+    /// If password is NULL then auth_userokay() operates in an interactive mode with the user on standard input, output, and error.
+    /// If password is specified, auth_userokay() operates in a non-interactive mode and only tests the specified passwords.
+    /// This non-interactive method does not work with challenge-response authentication styles.
+    ///
+    /// For security reasons, when a password is specified, auth_userokay() will zero out its value before it returns. 
+    /// ```
     ///
     /// For more details see `man 3 auth_approval`
     pub fn auth_userokay(
@@ -410,14 +444,9 @@ impl Session {
     }
     
     /// Get an authentication challenge for the user, with optional style and type
-    ///
-    /// IMPORTANT:
-    ///
-    /// The FFI call returns a session pointer, which is owned by the C library.
-    /// The caller must release ownership of the pointer to prevent a double-free
     /// Example:
     ///
-    /// ```rust,no_build
+    /// ```rust
     /// # use bsd_auth::Session;
     /// /* Create the session and get the challenge */
     /// let (session, _chal) = Session::auth_userchallenge("nobody", Some("passwd"), Some("auth_doas")).unwrap();
@@ -425,9 +454,6 @@ impl Session {
     /// /* Prompt the user for a response */
     /// let mut response = String::from_utf8([1; 1024].to_vec()).unwrap();
     /// session.auth_userresponse(&mut response, 0).unwrap();
-    ///
-    /// /* Release ownership of the inner pointer */
-    /// let _ = session.into_raw();
     /// ```
     ///
     /// From `man 3 auth_approval`:
@@ -489,8 +515,27 @@ impl Session {
         Ok((Self::from_raw(ses_ptr)?, challenge))
     }
     
+    /// Provide a user response for a BSD Authentication session
+    ///
+    /// Consumes the Session due to the FFI call closing the session
+    ///
+    /// Example:
+    ///
+    /// ```rust
+    /// # use bsd_auth::Session;
+    /// let name = "nobody".to_string();
+    /// let style = Some("passwd");
+    /// let mut passwd = "some_passwd".to_string();
+    ///
+    /// let session = Session::auth_usercheck(name.as_str(), style, None, Some(&mut passwd)).unwrap();
+    ///
+    /// let mut res = String::from_utf8([1u8; 1024].to_vec()).unwrap();
+    /// assert!(session.auth_userresponse(&mut res, 0).is_ok());
+    /// ```
+    ///
     /// From `man 3 auth_approval`:
     ///
+    ///```no_build
     /// In addition to the password, the pointer returned by auth_userchallenge()
     /// should be passed in as as and the value of more should be non-zero if the
     /// program wishes to allow more attempts.
@@ -500,8 +545,9 @@ impl Session {
     /// The auth_userresponse() function closes the BSD Authentication session and has the same return value as auth_userokay().
     ///
     /// For security reasons, when a response is specified, auth_userresponse() will zero out its value before it returns.
+    /// ```
     pub fn auth_userresponse(
-        &self,
+        self,
         response: &mut str,
         more: i32,
     ) -> Result<bool, Error> {
@@ -510,6 +556,8 @@ impl Session {
         // safety: auth_userresponse checks arguments for null, and clears the
         // memory pointed to by the response pointer
         let res = unsafe { ffi::auth_userresponse(self.inner, res_ptr, more) };
+
+        let _ = self.into_raw()?;
 
         Ok(res != 0)
     }
@@ -554,5 +602,15 @@ mod tests {
             let session = Session::auth_usercheck(name.as_str(), Some("passwd"), None, Some(&mut passwd)).unwrap();
             assert_eq!(session.auth_getitem(AuthItem::Name).unwrap(), name);
         }
+    }
+
+    #[test]
+    fn test_authuserresponse() {
+        let name = "nobody".to_string();
+        let style = Some("passwd");
+        let mut passwd = "some_passwd".to_string();
+        let session = Session::auth_usercheck(name.as_str(), style, None, Some(&mut passwd)).unwrap();
+        let mut res = String::from_utf8([1u8; 1024].to_vec()).unwrap();
+        assert!(session.auth_userresponse(&mut res, 0).is_ok());
     }
 }
