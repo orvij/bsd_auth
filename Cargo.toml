@@ -1,6 +1,6 @@
 [package]
 name = "bsd_auth"
-version = "0.0.2"
+version = "0.0.3"
 edition = "2018"
 categories = ["api-bindings"]
 description = "Rust API for OpenBSD's bsd_auth"
