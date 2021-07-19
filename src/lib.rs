@@ -409,6 +409,27 @@ impl Session {
         Ok(ret != 0)
     }
     
+    /// Get an authentication challenge for the user, with optional style and type
+    ///
+    /// IMPORTANT:
+    ///
+    /// The FFI call returns a session pointer, which is owned by the C library.
+    /// The caller must release ownership of the pointer to prevent a double-free
+    /// Example:
+    ///
+    /// ```rust,no_build
+    /// # use bsd_auth::Session;
+    /// /* Create the session and get the challenge */
+    /// let (session, _chal) = Session::auth_userchallenge("nobody", Some("passwd"), Some("auth_doas")).unwrap();
+    ///
+    /// /* Prompt the user for a response */
+    /// let mut response = String::from_utf8([1; 1024].to_vec()).unwrap();
+    /// session.auth_userresponse(&mut response, 0).unwrap();
+    ///
+    /// /* Release ownership of the inner pointer */
+    /// let _ = session.into_raw();
+    /// ```
+    ///
     /// From `man 3 auth_approval`:
     ///
     /// The auth_userchallenge() function takes the same name, style, and type arguments as does auth_userokay().
@@ -516,20 +537,20 @@ mod tests {
     #[test]
     fn test_usercheck() {
         let name = "nobody".to_string();
+        let mut passwd = "some_password".to_string();
         {
-            let session = Session::auth_usercheck(name.as_str(), None, None, None).unwrap();
+            let session = Session::auth_usercheck(name.as_str(), None, None, Some(&mut passwd.clone())).unwrap();
             assert_eq!(session.auth_getitem(AuthItem::Name).unwrap(), name);
         }
         {
-            let session = Session::auth_usercheck(name.as_str(), Some("passwd"), None, None).unwrap();
+            let session = Session::auth_usercheck(name.as_str(), Some("passwd"), None, Some(&mut passwd.clone())).unwrap();
             assert_eq!(session.auth_getitem(AuthItem::Name).unwrap(), name);
         }
         {
-            let session = Session::auth_usercheck(name.as_str(), Some("passwd"), Some("type"), None).unwrap();
+            let session = Session::auth_usercheck(name.as_str(), Some("passwd"), Some("type"), Some(&mut passwd.clone())).unwrap();
             assert_eq!(session.auth_getitem(AuthItem::Name).unwrap(), name);
         }
         {
-            let mut passwd = "some_passwd".to_string();
             let session = Session::auth_usercheck(name.as_str(), Some("passwd"), None, Some(&mut passwd)).unwrap();
             assert_eq!(session.auth_getitem(AuthItem::Name).unwrap(), name);
         }
