@@ -35,7 +35,7 @@ impl From<std::ffi::NulError> for Error {
     }
 }
 
-/// BSD authentication session
+/// BSD Authentication session
 pub struct Session {
     ptr: *mut ffi::auth_session_t,
 }
@@ -57,7 +57,7 @@ impl Session {
         }
     }
 
-    /// Create a Session from a raw auth_session_t pointer
+    /// Create a Session from a raw `auth_session_t` pointer
     pub fn from_raw(ptr: *mut ffi::auth_session_t) -> Result<Self, Error> {
         if ptr == std::ptr::null_mut() {
             Err(Error::NullSession)
@@ -66,7 +66,7 @@ impl Session {
         }
     }
 
-    /// Convert the Session into a raw auth_session_t pointer
+    /// Convert the Session into a raw `auth_session_t` pointer
     ///
     /// Consumes the Session
     pub fn into_raw(mut self) -> Result<*mut ffi::auth_session_t, Error> {
@@ -104,8 +104,10 @@ impl Session {
     /// 
     /// Inner pointer can be reset with calls that open a new session
     ///
+    /// Consumes the Session
+    ///
     /// Call is not thread-safe
-    pub fn auth_close(&self) -> Result<(), Error> {
+    pub fn auth_close(self) -> Result<(), Error> {
         self.check_ptr()?;
         let res = unsafe { ffi::auth_close(self.ptr) };
         if res == 0 {
@@ -128,7 +130,7 @@ impl Session {
     /// Mark the variables as set so they will not be set a second time.
     ///
     /// Environment variables are requested via the spool
-    /// of the auth_session_t struct
+    /// of the `auth_session_t` struct
     ///
     /// Call is not thread-safe
     pub fn auth_setenv(&self) -> Result<(), Error> {
