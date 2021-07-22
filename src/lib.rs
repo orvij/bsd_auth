@@ -1,4 +1,4 @@
-use std::ffi::CString; 
+use std::ffi::{CStr, CString}; 
 
 use bsd_auth_sys as ffi;
 
@@ -11,6 +11,7 @@ pub enum Error {
     Close,
     Utf8(std::str::Utf8Error),
     Nul(std::ffi::NulError),
+    GetHostName(i32),
     NullSession,
     SetEnv,
     ClrEnv,
@@ -296,6 +297,7 @@ impl Session {
     ///
     /// From `man 3 auth_approval`:
     ///
+    /// ```no_build
     /// The auth_usercheck() function operates the same as the auth_userokay()
     /// function except that it does not close the BSD Authentication session
     /// created.  Rather than returning the status of the session, it returns a
@@ -303,6 +305,7 @@ impl Session {
     ///
     /// If authentication fails, a null pointer is returned, which results in
     /// an error in the Rust API.
+    /// ```
     ///
     /// For more details see `man 3 auth_approval`
     pub fn auth_usercheck(
@@ -476,7 +479,9 @@ impl Session {
         let ses_ptr = unsafe { ffi::auth_userchallenge(name_ptr, style_ptr, type_ptr, &mut challenge_ptr) };
     
         let challenge = if challenge_ptr == std::ptr::null_mut() {
-           format!("doas passphrase for {}: ", name) 
+            let mut buf = [0i8; (libc::_SC_HOST_NAME_MAX + 1) as usize];
+            let host = gethostname(&mut buf)?;
+            format!("doas ({}@{}) password: ", name, host.to_str()?) 
         } else {
             // safety: with the null check above, the challenge pointer should
             // point to a valid C string
@@ -561,6 +566,21 @@ impl Drop for Session {
     }
 }
 
+fn gethostname(buf: &mut [i8]) -> Result<&CStr, Error> {
+    // This is basically what nix does, but don't want to add the extra dep
+    // for one function
+    // safety: pointer is guaranteed non-null, and points to valid memory
+    // write into the buffer is guaranteed in-bounds
+    let ret = unsafe { libc::gethostname(buf.as_mut_ptr(), buf.len()) };
+    if ret == -1 {
+        Err(Error::GetHostName(std::io::Error::last_os_error().raw_os_error().unwrap()))
+    } else {
+        // safety: pointer is guaranteed non-null and points to valid memory
+        // May or may not be a valid UTF8 string
+        Ok(unsafe { CStr::from_ptr(buf.as_ptr()) })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -600,5 +620,13 @@ mod tests {
         let session = Session::auth_usercheck(name.as_str(), style, None, Some(&mut passwd)).unwrap();
         let mut res = String::from_utf8([1u8; 1024].to_vec()).unwrap();
         assert!(session.auth_userresponse(&mut res, 0).is_ok());
+    }
+
+    #[test]
+    fn test_gethostname() {
+        let mut buf = [0i8; (libc::_SC_HOST_NAME_MAX + 1) as usize];
+        let host = gethostname(&mut buf).unwrap();
+        println!("{}", host.to_str().unwrap());
+        assert!(host.to_str().is_ok());
     }
 }
