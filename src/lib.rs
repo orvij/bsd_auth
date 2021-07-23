@@ -433,7 +433,7 @@ impl Session {
     /// let (session, _chal) = Session::auth_userchallenge("nobody", Some("passwd"), Some("auth_doas")).unwrap();
     ///
     /// /* Prompt the user for a response */
-    /// let mut response = String::from_utf8([1; 1024].to_vec()).unwrap();
+    /// let mut response = String::from_utf8([1; 32].to_vec()).unwrap();
     /// session.auth_userresponse(&mut response, 0).unwrap();
     /// ```
     ///
@@ -502,6 +502,8 @@ impl Session {
     ///
     /// Consumes the Session due to the FFI call closing the session
     ///
+    /// If `more` is non-zero, the session is returned
+    ///
     /// Example:
     ///
     /// ```rust
@@ -510,10 +512,18 @@ impl Session {
     /// let style = Some("passwd");
     /// let mut passwd = "some_passwd".to_string();
     ///
+    /// let session = Session::auth_usercheck(name.as_str(), style, None, Some(&mut passwd.clone())).unwrap();
+    ///
+    /// let mut res = "some_passwd".to_string();
+    /// let (ses, success) = session.auth_userresponse(&mut res.clone(), 0).unwrap();
+    /// assert!(ses.is_none());
+    /// assert_eq!(success, false);
+    ///
     /// let session = Session::auth_usercheck(name.as_str(), style, None, Some(&mut passwd)).unwrap();
     ///
-    /// let mut res = String::from_utf8([1u8; 1024].to_vec()).unwrap();
-    /// assert!(session.auth_userresponse(&mut res, 0).is_ok());
+    /// let (ses, success) = session.auth_userresponse(&mut res, 1).unwrap();
+    /// assert!(ses.is_some());
+    /// assert_eq!(success, false);
     /// ```
     ///
     /// From `man 3 auth_approval`:
@@ -530,21 +540,27 @@ impl Session {
     /// For security reasons, when a response is specified, auth_userresponse() will zero out its value before it returns.
     /// ```
     pub fn auth_userresponse(
-        self,
+        mut self,
         response: &mut str,
-        more: i32,
-    ) -> Result<bool, Error> {
+        more: u32,
+    ) -> Result<(Option<Session>, bool), Error> {
         self.check_ptr()?;
 
         let res_ptr = CString::new(&*response)?.into_raw();
 
         // safety: auth_userresponse checks arguments for null, and clears the
         // memory pointed to by the response pointer
-        let res = unsafe { ffi::auth_userresponse(self.ptr, res_ptr, more) };
+        let res = unsafe { ffi::auth_userresponse(self.ptr, res_ptr, more as i32) };
 
-        let _ = self.into_raw()?;
+        let ses = match more {
+            0 => {
+                self.ptr = std::ptr::null_mut();
+                None
+            }
+            _ => Some(self),
+        };
 
-        Ok(res != 0)
+        Ok((ses, res != 0))
     }
 
     fn check_ptr(&self) -> Result<(), Error> {
@@ -628,5 +644,14 @@ mod tests {
         let host = gethostname(&mut buf).unwrap();
         println!("{}", host.to_str().unwrap());
         assert!(host.to_str().is_ok());
+    }
+
+    #[test]
+    fn test_auth_userchallenge() {
+        let _ = unsafe { libc::setresuid(1000, 1000, 1000) };
+        let path = CString::new("/usr/libexec/auth").unwrap();
+        let perm = CString::new("rx").unwrap();
+        let _ = unsafe { libc::unveil(path.as_ptr(), perm.as_ptr()) };
+        let (_session, _challenge) = Session::auth_userchallenge("user", None, Some("auth-doas")).unwrap();
     }
 }
