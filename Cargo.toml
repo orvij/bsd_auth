@@ -12,5 +12,5 @@ repository = "https://github.com/orvij/bsd_auth"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bsd_auth-sys = "0.0.6"
+bsd_auth-sys = "0.0.7"
 libc = "0.2.98"
